@@ -6,9 +6,9 @@ from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# ==========================================
+# ======================================================
 # PAGE CONFIG
-# ==========================================
+# ======================================================
 
 st.set_page_config(
     page_title="Indonesian Recipe AI",
@@ -16,9 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# ==========================================
-# CHECK TOKEN
-# ==========================================
+# ======================================================
+# CHECK HF TOKEN
+# ======================================================
 
 if "HF_TOKEN" not in st.secrets:
     st.error("HF_TOKEN belum ditambahkan di Streamlit Secrets.")
@@ -26,9 +26,9 @@ if "HF_TOKEN" not in st.secrets:
 
 HF_TOKEN = st.secrets["HF_TOKEN"]
 
-# ==========================================
-# CSS
-# ==========================================
+# ======================================================
+# SIMPLE CSS
+# ======================================================
 
 st.markdown("""
 <style>
@@ -37,46 +37,33 @@ st.markdown("""
     padding-top: 1rem;
 }
 
-.recipe-card {
-    background: #1f1f1f;
-    padding: 20px;
-    border-radius: 16px;
-    margin-bottom: 16px;
-    border: 1px solid #333;
-}
-
-.recipe-title {
-    font-size: 24px;
-    font-weight: bold;
-    margin-bottom: 10px;
-}
-
-.small {
-    color: #cccccc;
-    font-size: 14px;
+.stTextInput input {
+    border-radius: 12px;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
+# ======================================================
 # LOAD DATASET
-# ==========================================
+# ======================================================
 
 @st.cache_data(show_spinner=False)
 def load_recipes():
 
     dataset = load_dataset(
         "junwatu/indonesian-recipes",
-        split="train[:1000]",
+        split="train[:500]",
         token=HF_TOKEN
     )
 
-    return dataset.to_pandas()
+    df = dataset.to_pandas()
 
-# ==========================================
+    return df
+
+# ======================================================
 # LOAD MODEL
-# ==========================================
+# ======================================================
 
 @st.cache_resource
 def load_model():
@@ -85,19 +72,27 @@ def load_model():
         "all-MiniLM-L6-v2"
     )
 
-# ==========================================
-# PREPARE TEXT
-# ==========================================
+# ======================================================
+# PREPARE SEARCH TEXT
+# ======================================================
 
-@st.cache_data(show_spinner=False, hash_funcs={pd.DataFrame: lambda _: None})
+@st.cache_data(
+    show_spinner=False,
+    hash_funcs={pd.DataFrame: lambda _: None}
+)
 def prepare_text(df):
 
     texts = []
 
     for _, row in df.iterrows():
 
-        ingredients = " ".join(row["ingredients"])
-        steps = " ".join(row["steps"])
+        ingredients = " ".join(
+            map(str, row["ingredients"])
+        )
+
+        steps = " ".join(
+            map(str, row["steps"])
+        )
 
         combined = f"""
         {row['title']}
@@ -109,9 +104,9 @@ def prepare_text(df):
 
     return texts
 
-# ==========================================
+# ======================================================
 # CREATE EMBEDDINGS
-# ==========================================
+# ======================================================
 
 @st.cache_resource
 def create_embeddings(texts):
@@ -122,11 +117,11 @@ def create_embeddings(texts):
         show_progress_bar=False
     )
 
-# ==========================================
+# ======================================================
 # INITIALIZATION
-# ==========================================
+# ======================================================
 
-with st.spinner("Loading AI & dataset..."):
+with st.spinner("Loading dataset & AI model..."):
 
     df = load_recipes()
 
@@ -136,32 +131,32 @@ with st.spinner("Loading AI & dataset..."):
 
     embeddings = create_embeddings(combined_texts)
 
-# ==========================================
+# ======================================================
 # HEADER
-# ==========================================
+# ======================================================
 
 st.title("🍜 Indonesian Recipe AI")
 
 st.caption(
-    "Cari resep makanan Indonesia dengan semantic search AI"
+    "Cari resep makanan Indonesia menggunakan semantic search AI"
 )
 
-# ==========================================
-# SEARCH BOX
-# ==========================================
+# ======================================================
+# SEARCH INPUT
+# ======================================================
 
 query = st.text_input(
     "Cari makanan",
-    placeholder="contoh: ayam pedas, mie goreng, soto..."
+    placeholder="contoh: ayam pedas, soto, mie goreng..."
 )
 
-# ==========================================
-# SEARCH
-# ==========================================
+# ======================================================
+# SEARCH PROCESS
+# ======================================================
 
 if query:
 
-    with st.spinner("Mencari resep..."):
+    with st.spinner("Mencari resep terbaik..."):
 
         query_embedding = model.encode(
             [query],
@@ -173,46 +168,41 @@ if query:
             embeddings
         )[0]
 
-        top_indices = np.argsort(similarities)[-5:][::-1]
+        top_indices = np.argsort(
+            similarities
+        )[-5:][::-1]
 
-        st.subheader("Hasil Pencarian")
+        st.subheader("🔍 Hasil Pencarian")
 
         for idx in top_indices:
 
             row = df.iloc[idx]
 
-            st.markdown(f"""
-            <div class="recipe-card">
+            with st.container(border=True):
 
-                <div class="recipe-title">
-                    {row['title']}
-                </div>
+                st.subheader(row["title"])
 
-                <div class="small">
-                    Similarity Score:
-                    {similarities[idx]:.2f}
-                </div>
+                st.caption(
+                    f"Similarity Score: "
+                    f"{similarities[idx]:.2f}"
+                )
 
-                <br>
+                st.markdown("### 🧂 Bahan")
 
-                <b>🧂 Bahan:</b>
+                for item in row["ingredients"][:8]:
+                    st.write(f"• {item}")
 
-                <ul>
-                    {''.join([f"<li>{x}</li>" for x in row['ingredients'][:8]])}
-                </ul>
+                st.markdown("### 👨‍🍳 Langkah")
 
-                <b>👨‍🍳 Langkah:</b>
+                for i, step in enumerate(
+                    row["steps"][:5],
+                    start=1
+                ):
+                    st.write(f"{i}. {step}")
 
-                <ol>
-                    {''.join([f"<li>{x}</li>" for x in row['steps'][:5]])}
-                </ol>
-
-            </div>
-            """, unsafe_allow_html=True)
-
-# ==========================================
-# DEFAULT VIEW
-# ==========================================
+# ======================================================
+# DEFAULT DISPLAY
+# ======================================================
 
 else:
 
@@ -222,29 +212,24 @@ else:
 
     cols = st.columns(2)
 
-    for i, (_, row) in enumerate(sample_df.iterrows()):
+    for i, (_, row) in enumerate(
+        sample_df.iterrows()
+    ):
 
         with cols[i % 2]:
 
-            st.markdown(f"""
-            <div class="recipe-card">
+            with st.container(border=True):
 
-                <div class="recipe-title">
-                    {row['title']}
-                </div>
+                st.subheader(row["title"])
 
-                <div class="small">
-                    {len(row['ingredients'])} bahan
-                    •
-                    {len(row['steps'])} langkah
-                </div>
+                st.caption(
+                    f"{len(row['ingredients'])} bahan • "
+                    f"{len(row['steps'])} langkah"
+                )
 
-            </div>
-            """, unsafe_allow_html=True)
-
-# ==========================================
+# ======================================================
 # FOOTER
-# ==========================================
+# ======================================================
 
 st.divider()
 
