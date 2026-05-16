@@ -14,7 +14,7 @@ st.set_page_config(page_title="AI Culinary Assistant", page_icon="🍳", layout=
 
 st.title("🍳 AI Culinary Assistant Dashboard")
 st.markdown("Cari resep masakan Indonesia berdasarkan bahan sisa di kulkas menggunakan Kecerdasan Buatan (NLP & Vector Search).")
-st.hr()
+st.divider()
 
 # Kita gunakan st.cache_resource agar model AI tidak di-load ulang setiap kali user mengklik tombol (bikin lemot)
 @st.cache_resource
