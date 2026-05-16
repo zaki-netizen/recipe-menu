@@ -1,12 +1,13 @@
+Python
 import streamlit as st
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
-from huggingface_hub import login
 import pandas as pd
 import faiss
 import numpy as np
 import re
+import os # Tambahkan modul os untuk memanipulasi environment variabel
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN & UTILITY
@@ -22,16 +23,11 @@ st.divider()
 # ==========================================
 @st.cache_resource
 def load_models_and_data():
-    # Menggunakan Token Langsung secara Aman untuk Otentikasi Global Hub
+    # 1. Daftarkan Token ke Level OS secara Paksa
     HF_TOKEN = "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"
+    os.environ["HF_TOKEN"] = HF_TOKEN
     
-    # Login global ke Hugging Face Hub (Solusi Bug Python 3.14 di Cloud)
-    try:
-        login(token=HF_TOKEN, write_permission=False)
-    except Exception as e:
-        st.error(f"Gagal melakukan otentikasi Hugging Face: {e}")
-
-    # A. Memuat Dataset Gated
+    # 2. Memuat Dataset Gated (Pustaka akan otomatis membaca variabel OS di atas)
     dataset = load_dataset("junwatu/indonesian-recipes", split="train")
     df = dataset.to_pandas()
     
