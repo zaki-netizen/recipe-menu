@@ -7,3 +7,4 @@ transformers
 numpy
 huggingface_hub
 torch
+torchvision
