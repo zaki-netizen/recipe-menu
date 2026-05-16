@@ -22,6 +22,7 @@ st.divider()
 # ==========================================
 @st.cache_resource
 def load_models_and_data():
+    HF_TOKEN = "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"
     os.environ["HF_TOKEN"] = HF_TOKEN
     
     # 2. Memuat Dataset Gated (Pustaka akan otomatis membaca variabel OS di atas)
