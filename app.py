@@ -1,13 +1,13 @@
 import os
 import streamlit as st
+import pandas as pd
+import numpy as np
+import faiss
+import re
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 from huggingface_hub import login
-import pandas as pd
-import faiss
-import numpy as np
-import re
 
 # ==========================================
 # 1. KONFIGURASI HALAMAN
@@ -15,7 +15,7 @@ import re
 st.set_page_config(page_title="AI Culinary Assistant", page_icon="🍳", layout="wide")
 
 st.title("🍳 AI Culinary Assistant Dashboard")
-st.markdown("Cari resep masakan Indonesia berdasarkan bahan sisa menggunakan Kecerdasan Buatan.")
+st.markdown("Cari resep masakan Indonesia berdasarkan bahan sisa menggunakan Kecerdasan Buatan (NLP & Vector Search).")
 st.divider()
 
 # ==========================================
@@ -23,10 +23,10 @@ st.divider()
 # ==========================================
 @st.cache_resource
 def load_models_and_data():
-    # Token Hugging Face
+    # Token Hugging Face Anda
     HF_TOKEN = "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"
     
-    # Otentikasi Global (Penting untuk Streamlit Cloud)
+    # Otentikasi Environment
     os.environ["HF_TOKEN"] = HF_TOKEN
     try:
         login(token=HF_TOKEN)
@@ -35,10 +35,14 @@ def load_models_and_data():
 
     # A. Memuat Dataset
     # Mengunduh dataset resep masakan Indonesia
-    dataset = load_dataset("junwatu/indonesian-recipes", split="train")
-    df = dataset.to_pandas()
+    try:
+        dataset = load_dataset("junwatu/indonesian-recipes", split="train")
+        df = dataset.to_pandas()
+    except Exception as e:
+        st.error(f"Gagal memuat dataset: {e}")
+        return None, None, None
     
-    # Deteksi kolom instruksi secara otomatis
+    # Deteksi otomatis nama kolom instruksi (antisipasi perubahan nama kolom di dataset)
     kolom_instruksi = 'instructions'
     for col in ['steps', 'directions', 'cara', 'langkah', 'instructions']:
         if col in df.columns:
@@ -48,15 +52,16 @@ def load_models_and_data():
     if kolom_instruksi != 'instructions':
         df = df.rename(columns={kolom_instruksi: 'instructions'})
 
-    # Pembersihan Data (Mencegah error Float/NaN)
-    df['ingredients'] = df['ingredients'].astype(str).replace(['nan', 'None', ''], 'tidak ada bahan')
+    # Membersihkan Data (PENTING: Mengubah NaN/Float menjadi String)
+    df['ingredients'] = df['ingredients'].astype(str).replace(['nan', 'None', ''], 'bahan tidak disebutkan')
     df['title'] = df['title'].astype(str)
     df['instructions'] = df['instructions'].astype(str)
     
-    # Gunakan 30 sampel data agar RAM tidak penuh di server gratis
+    # Mengambil 30 data pertama untuk stabilitas RAM server
     df_sample = df.head(30).copy()
     
     # B. Fitur Klasifikasi (Zero-Shot) - Menggunakan model ringan DistilBERT
+    # Membantu mengategorikan jenis masakan secara otomatis
     classifier = pipeline("zero-shot-classification", model="typeform/distilbert-base-uncased-mnli")
     labels = ["makanan berkuah", "makanan gorengan", "kue dessert manis"]
     
@@ -73,93 +78,104 @@ def load_models_and_data():
     df_sample['kategori_ai'] = kategori_list
     
     # C. Fitur Pencarian Semantik (FAISS)
+    # Menggunakan model embedding multibahasa
     model_embed = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     df_sample['clean_text'] = df_sample['ingredients'].str.replace('\n', ' ', regex=False)
     embeddings = model_embed.encode(df_sample['clean_text'].tolist(), show_progress_bar=False)
     
-    # Bangun Index FAISS
+    # Membangun Index FAISS untuk pencarian cepat
     dimensi = embeddings.shape[1]
     index = faiss.IndexFlatL2(dimensi)
     index.add(np.array(embeddings))
     
     return df_sample, model_embed, index
 
-# Tampilkan Spinner saat Loading
-with st.spinner("🤖 Menginisialisasi AI... Harap tunggu sebentar."):
+# Menjalankan proses loading dengan indikator visual
+with st.spinner("🤖 Menginisialisasi AI dan memuat database... Harap tunggu 1-2 menit."):
     df_sample, model_embed, index_faiss = load_models_and_data()
 
 # ==========================================
 # 3. FUNGSI LOGIKA (PORSI & ALERGI)
 # ==========================================
-def process_recipe(ingredients, porsi, allergens):
-    # Cek Alergi
-    if allergens:
-        for a in allergens:
+def process_recipe(ingredients, porsi_factor, allergens_list):
+    # Cek Filter Alergi
+    if allergens_list:
+        for a in allergens_list:
             if a.strip().lower() in ingredients.lower():
-                return None
+                return None # Skip resep ini
     
-    # Kalkulasi Porsi (Regex)
+    # Fungsi Regex untuk mengalikan angka takaran porsi
     def multiply(match):
-        val = float(match.group())
-        return str(round(val * porsi, 2))
+        try:
+            val = float(match.group())
+            return str(round(val * porsi_factor, 2))
+        except:
+            return match.group()
     
     return re.sub(r'\d+(\.\d+)?', multiply, ingredients)
 
 # ==========================================
-# 4. ANTARMUKA SIDEBAR
+# 4. ANTARMUKA SIDEBAR (INPUT)
 # ==========================================
-st.sidebar.header("🎛️ Pengaturan")
-query = st.sidebar.text_input("🛒 Bahan yang dimiliki:", placeholder="Misal: ayam, santan")
-porsi = st.sidebar.slider("👥 Jumlah Porsi (Kelipatan):", 1, 10, 1)
-alergi_input = st.sidebar.text_input("⚠️ Pantangan Alergi (Koma):", placeholder="Misal: kacang, kecap")
-filter_kat = st.sidebar.selectbox("🍽️ Jenis Masakan:", ["Semua", "Berkuah", "Goreng/Kering", "Kue & Manis"])
+st.sidebar.header("🎛️ Pengaturan Pencarian")
+query = st.sidebar.text_input("🛒 Bahan sisa yang Anda miliki:", placeholder="Misal: ayam, telur, cabai")
+porsi = st.sidebar.slider("👥 Skala Porsi (Kelipatan):", 1, 10, 1)
+alergi_input = st.sidebar.text_input("⚠️ Pantangan Alergi (Pisahkan dengan koma):", placeholder="Misal: udang, kecap")
+filter_kat = st.sidebar.selectbox("🍽️ Filter Jenis Masakan (AI):", ["Semua", "Berkuah", "Goreng/Kering", "Kue & Manis"])
 
+# Memproses input alergi menjadi list
 alergi_list = [x.strip() for x in alergi_input.split(",")] if alergi_input else []
 
 # ==========================================
-# 5. HALAMAN UTAMA & HASIL
+# 5. HALAMAN UTAMA & LOGIKA PENCARIAN
 # ==========================================
-if st.sidebar.button("🚀 Cari Resep", type="primary"):
-    if query:
-        # Search FAISS
-        q_vec = model_embed.encode([query])
-        D, I = index_faiss.search(np.array(q_vec), len(df_sample))
+if st.sidebar.button("🚀 Cari Resep Sekarang", type="primary"):
+    if query and df_sample is not None:
+        st.subheader(f"🔍 Hasil Pencarian untuk: '{query}'")
         
-        found = 0
-        for idx in I[0]:
+        # Pencarian kemiripan makna menggunakan FAISS
+        q_vec = model_embed.encode([query])
+        dist, indices = index_faiss.search(np.array(q_vec), len(df_sample))
+        
+        found_count = 0
+        for idx in indices[0]:
             row = df_sample.iloc[idx]
             
-            # Filter Kategori
+            # 1. Filter berdasarkan Kategori AI
             if filter_kat != "Semua" and row['kategori_ai'] != filter_kat:
                 continue
             
-            # Proses Porsi & Alergi
+            # 2. Proses Logika Porsi & Alergi
             mod_ingredients = process_recipe(row['ingredients'], porsi, alergi_list)
             
             if mod_ingredients:
-                found += 1
-                with st.expander(f"✅ {row['title'].upper()} ({row['kategori_ai']})"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.write("**Bahan (Disesuaikan):**")
+                found_count += 1
+                with st.expander(f"⭐ REKOMENDASI #{found_count}: {row['title'].upper()} ({row['kategori_ai']})", expanded=True):
+                    col_left, col_right = st.columns(2)
+                    with col_left:
+                        st.write("**📋 Bahan-Bahan (Porsi x{}):**".format(porsi))
                         st.text(mod_ingredients)
-                    with c2:
-                        st.write("**Cara Masak:**")
+                    with col_right:
+                        st.write("**📖 Cara Memasak:**")
                         st.text(row['instructions'])
                 
-                if found == 3: break # Tampilkan 3 terbaik
+                # Batasi hanya menampilkan 3 hasil terbaik untuk efisiensi
+                if found_count == 3: 
+                    break
         
-        if found == 0:
-            st.error("Tidak ditemukan resep yang cocok dengan kriteria Anda.")
+        if found_count == 0:
+            st.error("❌ Tidak ditemukan resep yang cocok dengan kriteria atau batasan alergi Anda.")
     else:
-        st.warning("Masukkan bahan masakan di sidebar!")
+        st.warning("⚠️ Masukkan bahan masakan yang Anda miliki di panel sidebar!")
 else:
-    st.info("Gunakan panel di kiri untuk mulai mencari resep.")
+    # Tampilan awal Dashboard
+    st.info("💡 Masukkan bahan makanan di sidebar kiri untuk mendapatkan rekomendasi resep berbasis AI.")
     
-    # Visualisasi Mini
-    st.subheader("📊 Koleksi Resep Berdasarkan AI")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.dataframe(df_sample[['title', 'kategori_ai']], use_container_width=True)
-    with col_b:
-        st.bar_chart(df_sample['kategori_ai'].value_counts())
+    if df_sample is not None:
+        st.subheader("📊 Statistik Menu Tersedia (Analisis AI)")
+        ca, cb = st.columns(2)
+        with ca:
+            st.dataframe(df_sample[['title', 'kategori_ai']].rename(columns={'title': 'Nama Resep', 'kategori_ai': 'Kategori'}), use_container_width=True, hide_index=True)
+        with cb:
+            st.markdown("**Distribusi Jenis Masakan**")
+            st.bar_chart(df_sample['kategori_ai'].value_counts())
