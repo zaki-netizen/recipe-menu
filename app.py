@@ -89,7 +89,7 @@ def load_model():
 # PREPARE TEXT
 # ==========================================
 
-@st.cache_data(show_spinner=False), hash_funcs={pd.DataFrame: lambda _: None})
+@st.cache_data(show_spinner=False), hash_funcs={pd.DataFrame: lambda _: None}
 def prepare_text(df):
 
     texts = []
