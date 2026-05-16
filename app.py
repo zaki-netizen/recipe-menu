@@ -23,9 +23,6 @@ st.divider()
 # ==========================================
 @st.cache_resource
 def load_models_and_data():
-    # Token Hugging Face Anda
-    HF_TOKEN = "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"
-    
     # Otentikasi Environment
     os.environ["HF_TOKEN"] = HF_TOKEN
     try:
