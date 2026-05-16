@@ -1,10 +1,7 @@
-streamlit
-datasets
-sentence-transformers
-faiss-cpu
-pandas
-transformers
-numpy
-huggingface_hub
-torch
-torchvision
+streamlit==1.57.0
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.1
+sentence-transformers==2.7.0
+transformers==4.41.2
+torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
