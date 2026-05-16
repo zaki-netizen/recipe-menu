@@ -1,4 +1,3 @@
-Python
 import streamlit as st
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
@@ -23,8 +22,6 @@ st.divider()
 # ==========================================
 @st.cache_resource
 def load_models_and_data():
-    # 1. Daftarkan Token ke Level OS secara Paksa
-    HF_TOKEN = "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"
     os.environ["HF_TOKEN"] = HF_TOKEN
     
     # 2. Memuat Dataset Gated (Pustaka akan otomatis membaca variabel OS di atas)
